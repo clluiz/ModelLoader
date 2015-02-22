@@ -1,0 +1,53 @@
+body {
+    
+    background-color: #DDDDDD;
+    opacity: 1.0;
+}
+
+form .row {
+  overflow: hidden;
+  border-top: 1px solid gray;  
+}
+
+form .row .cell{
+  width: 400px;
+  overflow: hidden;
+  float: left;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+form .row .label {
+  text-align: right;
+  margin-right: 2px;
+}
+
+form .row .input input[type='text']{
+
+ height: 18px;
+ width: 150px;
+ border: 1px solid #b9b7ad; 
+}
+
+.content {
+    
+    float: left;
+    width: 1024px;
+}
+
+.options {
+    
+    float: left;
+    width: 850px;
+}
+
+
+canvas {
+    
+    width: 1024px;
+    height: 768px;
+    border: solid;
+    border-color: #000000;
+    background-color: #FFFFFF;
+    border-width: 1.0px;
+}

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Model Loader</title>
+    <link rel="stylesheet" type="text/css" href="css/styles.css"/>
+</head>
+
+<body>
+    
+    <script type="text/javascript" src="scripts/perspectivecamera.js"></script>
+    <script type="text/javascript" src="scripts/util.js"></script>
+    <script type="text/javascript" src="scripts/stlmodel.js"></script>
+    <script type="text/javascript" src="scripts/webglhelper.js"></script>
+    <script type="text/javascript" src="scripts/glMatrix.js"></script>
+    <script type="text/javascript" src="scripts/dat.gui.js"></script>
+    <script type="text/javascript" src="scripts/webgl-utils.js"></script>
+   
+    <section class="content">
+        
+        <canvas id="canvas" width="1024" height="768"></canvas>
+        
+    </section>
+    
+    <section class="options">
+        
+        <form>
+            
+            <div class="row">
+            
+                <div class="label cell">Tipo</div>
+                <div class="input cell">
+                    <select id="tipo">
+                        <option value="0">Escolha um tipo de arquivo</option>
+                        <option value="stl">.StL ( Binário )</option>
+                    </select>
+                </div>
+                
+            </div>
+            
+            <div class="row">
+                
+                <div class="label cell">Arquivo</div>
+                <div class="input cell">
+                    <input id="arquivo" type="file"/>
+                </div>
+            
+            </div>
+            
+            <div class="row">
+                <div class="label cell">Header</div>
+                <div class="input cell">
+                    <input id="header" disabled/>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="label cell">Número de triangulos</div>
+                <div class="input cell">
+                    <input id="faces" disabled/>
+                </div>
+            </div>
+                        
+        </form>
+            
+    </section>
+    
+    <script type="text/javascript">
+        
+        var fShader = "\n precision mediump float;\n void main(void) {\n gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);\n }";
+        var vShader = "\n attribute vec3 aVertexPosition;\n uniform mat4 uMVMatrix;\n uniform mat4 uPMatrix; \n void main(void) { \n gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);\n }";
+        
+        var helper = new WebGlHelper();
+        var gl;
+        var rawGl;
+        var model;
+        var modelBuffer;
+        var suportaWebGl;
+        var camera = new App.PerspectiveCamera();
+        var gui = null;
+        var position = { x : 1.5, y : 0.0, z : 7.0 };
+        var target = { x : 0.0, y : 0.0, z : 1.0 };
+        var up = { x : 0.0, y : 1.0, z : 0.0 };
+        var fov = { value : 90 };
+        
+        function init() {
+            
+            if (!suportaArquivosHtml5()) {
+                
+                alert("Seu navegador não suporta a API de arquivos do HTML5");
+                return;
+            }
+            
+            suportaWebGl = helper.TestarSuporteWebGl();
+            
+            if (!suportaWebGl) {
+                
+                alert( "Não foi possível iniciar o WebGL. Seu navegador pode não suportá-lo. Acesse : http://get.webgl.org/ para confirmar.");
+                return;
+            }
+        };
+        
+        init();
+        
+        function initGL( canvas ) {
+                        
+            try {
+        
+               gl = canvas.getContext(suportaWebGl.name);
+               gl.viewportWidth = canvas.width;
+               gl.viewportHeight = canvas.height;
+        
+            } catch(e) {
+                
+                alert(e)
+            };                   
+        };
+        
+        function initGui() {
+            
+            gui = new dat.GUI();
+            var controller = gui.add(fov, 'value', 0, 90 );
+
+            var positionFolder = gui.addFolder('Posição');
+            positionFolder.add(position,"x", 0, 100);
+            positionFolder.add(position,"y", 0, 100);
+            positionFolder.add(position,"z", 0, 100);
+            
+            var targetFolder = gui.addFolder('Target');
+            targetFolder.add(target,"x", 0, 100);
+            targetFolder.add(target,"y", 0, 100);
+            targetFolder.add(target,"z", 0, 100);
+            
+            var upFolder = gui.addFolder('Up');
+            upFolder.add(up,"x", 0, 100);
+            upFolder.add(up,"y", 0, 100);
+            upFolder.add(up,"z", 0, 100);
+        }
+        
+        var shaderProgram;
+        function initShaders() {
+                        
+            var fragmentShader = helper.BuildShader(gl, fShader, gl.FRAGMENT_SHADER);
+            var vertexShader = helper.BuildShader(gl, vShader, gl.VERTEX_SHADER);
+
+            shaderProgram = gl.createProgram();
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
+
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+                alert("Não foi possível iniciar os shaders.");
+            }   
+
+            gl.useProgram(shaderProgram);
+
+            shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+            gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+
+            shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
+            shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+        };
+        
+        var mvMatrix = mat4.create();
+        var pMatrix = mat4.create();
+
+        function setMatrixUniforms() {
+            
+            gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, camera.projectionMatrix);
+            gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, camera.cameraMatrix);
+        }
+        
+        function initBuffer() {
+            
+            modelBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, modelBuffer);
+            
+            var vertices = [];            
+            var triangles = model.triangles();
+            var ii;
+            for (ii = 0; ii < triangles.length; ii++) {
+                
+                var triangle = triangles[ii];
+                vertices.push( triangle.vertices[0].x, triangle.vertices[0].y, triangle.vertices[0].z );
+                vertices.push( triangle.vertices[1].x, triangle.vertices[1].y, triangle.vertices[1].z );
+                vertices.push( triangle.vertices[2].x, triangle.vertices[2].y, triangle.vertices[2].z );
+            };
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+            modelBuffer.itemSize = 3;
+            modelBuffer.numItems = 3 * triangles.length;
+        };
+        
+        function drawModel() {
+            
+            gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            
+            camera.fieldOfView = fov.value;
+            
+            camera.updateProjectionMatrix();
+            
+            camera.lookAt( vec3.fromValues(position.x,position.y,position.z), vec3.fromValues(target.x,target.y,target.z), vec3.fromValues(up.x,up.y,up.z) );
+            
+            gl.bindBuffer(gl.ARRAY_BUFFER, modelBuffer);
+            gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, modelBuffer.itemSize, gl.FLOAT, false, 0, 0);
+            
+            setMatrixUniforms();
+           
+            gl.drawArrays(gl.TRIANGLES, 0, modelBuffer.numItems);
+        };
+        
+        function startProgram() {
+            
+            initGL( document.getElementById( "canvas" ) );
+            initShaders();
+            initBuffer();
+            initGui();
+            
+            gl.clearColor(1.0, 1.0, 1.0, 1.0);
+            gl.enable(gl.DEPTH_TEST);
+            
+            camera.aspectRatio = gl.viewportWidth / gl.viewportHeight;
+            camera.near = 1;
+            camera.far = 100.0;
+            
+            tick();
+        };
+        
+        function tick() {
+            
+            requestAnimFrame(tick);
+            drawModel();
+        }
+        function handleFileSelect(event) {
+            
+            var arquivo = event.target.files[0];
+            
+            var extensao = arquivo.name.split(".")[1];            
+            var escolhido = document.getElementById("tipo").value;
+            if (extensao !== escolhido ) {
+                
+                alert("O arquivo escolhido não é do tipo " + escolhido );
+                return;
+            }
+            
+            var reader = new FileReader();
+            
+            reader.onload = function(e) {
+                
+                model = new stlmodel();
+                model.data(e.target.result);
+                
+                document.getElementById("header").value = model.header();
+                document.getElementById("faces").value = model.triangles().length;
+                startProgram();
+            };            
+            reader.readAsArrayBuffer(arquivo);
+        };
+        
+        document.getElementById('arquivo').addEventListener('change', handleFileSelect, false);
+
+    </script>
+    
+</body>
+</html>
